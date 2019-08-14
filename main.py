@@ -4,7 +4,7 @@ from os import path
 import pygame
 
 # TODO Refactor 將參數統一放到另外一個檔案
-SHOT_DELAY = 40
+SHOT_DELAY = 50
 
 YELLOW = (255, 255, 0)
 
@@ -18,7 +18,7 @@ GREEN = (0, 255, 0)
 
 RED = (255, 0, 0)
 
-FPS = 40  
+FPS = 40
 
 img_dir = path.join(path.dirname(__file__), 'img')
 sound_dir = path.join(path.dirname(__file__), 'sound')
@@ -27,7 +27,6 @@ pygame.init()
 pygame.mixer.init()
 pygame.mixer.music.load(path.join(sound_dir, "bgm.mp3"))
 pygame.mixer.music.play(-1)
-
 
 class Player(pygame.sprite.Sprite):
     def __init__(self, x, y):
@@ -40,9 +39,16 @@ class Player(pygame.sprite.Sprite):
         self.speedx = 10
         self.speedy = 8
         self.shield = 100
+        self.lifes = 3
+        self.power = 1
+        self.powertime = pygame.time.get_ticks()
 
     def update(self):
         self.keyEventHandling()
+        if self.power >= 2 and pygame.time.get_ticks() - self.powertime >= 5000:
+            player.power -= 1
+    def hide(self):
+        self.hidden = True
 
     def keyEventHandling(self):
         keystate = pygame.key.get_pressed()
@@ -57,8 +63,15 @@ class Player(pygame.sprite.Sprite):
 
     def move(self, dx, dy):
         self.rect.x += dx
+        if self.rect.x >= WIDTH - 50:
+            self.rect.x = WIDTH - 50
+        elif self.rect.x <= 0:
+            self.rect.x = 0
         self.rect.y += dy
-        
+        if self.rect.y >= HEIGHT - 30:
+            self.rect.y = HEIGHT - 30
+        elif self.rect.y <= 0:
+            self.rect.y = 0
 
 class Meteor(pygame.sprite.Sprite):
     def __init__(self):
@@ -84,7 +97,7 @@ class Meteor(pygame.sprite.Sprite):
         self.image = pygame.transform.rotate(self.image_origin,self.angle)
         self.rect = self.image.get_rect()
         self.rect.center = old_center
-        if (self.rect.y > HEIGHT):
+        if self.rect.y > HEIGHT:
             newMeteor()
             self.kill()
 
@@ -93,7 +106,7 @@ class Bullet(pygame.sprite.Sprite):
     def __init__(self, posx, posy):
         pygame.sprite.Sprite.__init__(self)
 
-        self.image = pygame.image.load(path.join(img_dir, "laser_gun.png"))
+        self.image = pygame.image.load(path.join(img_dir, "laser_red.png"))
         self.rect = self.image.get_rect()
         self.rect.centerx = posx
         self.rect.centery = posy
@@ -120,6 +133,7 @@ clock = pygame.time.Clock()
 meteors = pygame.sprite.Group()
 all_sprites = pygame.sprite.Group()
 bullets = pygame.sprite.Group()
+supports = pygame.sprite.Group()
 
 last_shot = pygame.time.get_ticks()
 now = 0
@@ -132,6 +146,7 @@ for i in range(8):
 all_sprites.add(bullets)
 all_sprites.add(player)
 all_sprites.add(meteors)
+
 running = True
 sound_pew = pygame.mixer.Sound(path.join(sound_dir, "pew.wav"))
 
@@ -141,20 +156,34 @@ def check_meteor_hit_player():
     hits = pygame.sprite.spritecollide(player, meteors, False, pygame.sprite.collide_circle_ratio(0.7))
     if hits:
         for hit in hits:
-            player.shield -= 20
+            player.shield -= hit.speedy*3
             hit.kill()
             if player.shield <= 0:
-                running = False
+                gamestate = 'begin'
                 # print("check_meteor_hit_player")
             newMeteor()
-            # TODO 修改死亡的規則，改成扣血扣到0時，遊戲才結束
+
+def check_support_hit_player():
+    hits = pygame.sprite.spritecollide(player, supports, True, pygame.sprite.collide_circle_ratio(0.7))
+    if hits:
+        for hit in hits:
+            if hit.thing == 'bolt':
+                player.power += 1
+                Player.powertime = pygame.time.get_ticks()
+            elif hit.thing == 'pill':
+                player.shield += 20
+                if player.shield >=100:
+                    player.shield = 100
+            #elif hit.thing = 'shield':
+                
+            hit.kill()
 
 ani_list = []
 
 class Explosion(pygame.sprite.Sprite):
     
     for i in range(0,9):
-        ani_list.append(pygame.image.load(path.join(img_dir,"regularExplosion0{0}.png".format(i))))
+        ani_list.append(pygame.image.load(path.join(img_dir,"explosion/regularExplosion0{0}.png".format(i))))
     
     def __init__(self, x, y):
         pygame.sprite.Sprite.__init__(self)
@@ -178,20 +207,40 @@ class Explosion(pygame.sprite.Sprite):
     def play(self):
         pass
 
+class Support(pygame.sprite.Sprite):
+    def __init__(self, x, y, speedy):
+        pygame.sprite.Sprite.__init__(self)
+        
+        self.thing = random.choice(['bolt','pill','shield'])
+        self.number = random.randint(1,3)
+        
+        self.image = pygame.image.load(path.join(img_dir,"powerUp/{0}_0{1}.png".format(self.thing, self.number)))
+        self.rect = self.image.get_rect()
+        self.rect.centerx = x
+        self.rect.centery = y
+        self.speedy = speedy
+    
+    def update(self):
+        self.rect.centery = self.rect.centery + self.speedy
+        if self.rect.centery > HEIGHT:
+            self.kill()
+
+
 def check_bullets_hit_meteor():
     global  score
     hits = pygame.sprite.groupcollide(meteors, bullets, True, True, pygame.sprite.collide_circle_ratio(0.7))
     if hits:
         for hit in hits:
-            score += (8 - hit.size)*hit.speedy/5
+            score += (8 - hit.size)*hit.speedy/10
             hit.kill()
-            
             # print("check_bullets_hit_meteor")
             newMeteor()
-            # TODO 04.增加爆炸的動畫
             explosion = Explosion(hit.rect.centerx,hit.rect.centery)
             all_sprites.add(explosion)
-            
+            if random.randint(0,1):
+                support = Support(hit.rect.centerx, hit.rect.centerx, hit.speedy)
+                supports.add(support)
+                all_sprites.add(support)
             # TODO 06.擊破隕石會掉出武器或是能量包 武器可以改變攻擊模式 能量包可以回血
 
 def draw_score():
@@ -202,12 +251,19 @@ def draw_score():
     screen.blit(text_surface, text_rect)
     pass
 
-
 def shoot():
     sound_pew.play()
-    bullet = Bullet(player.rect.centerx, player.rect.centery)
-    bullets.add(bullet)
-    all_sprites.add(bullet)
+    if player.power > 1:
+        bullet1 = Bullet(player.rect.left, player.rect.centery)
+        bullets.add(bullet1)
+        all_sprites.add(bullet1)
+        bullet2 = Bullet(player.rect.right, player.rect.centery)
+        bullets.add(bullet2)
+        all_sprites.add(bullet2)
+    else:
+        bullet = Bullet(player.rect.centerx, player.rect.centery)
+        bullets.add(bullet)
+        all_sprites.add(bullet)
 
 
 def draw_shield():
@@ -216,38 +272,60 @@ def draw_shield():
     pygame.draw.rect(screen,GREEN,shield_bar)
     pygame.draw.rect(screen,(255,255,255),outline_rect,2)
 
+def draw_text(surf, text, size, x, y):
+    font = pygame.font.Font(font_name, size)
+    text_surface = font.render(text, True, YELLOW)
+    text_rect = text_surface.get_rect()
+    text_rect.midtop = (x, y)
+    surf.blit(text_surface, text_rect)
+
+def show_begin_screen():
+    draw_text(screen, 'SPACE WAR', 64, WIDTH / 2, HEIGHT / 4)
+    draw_text(screen, 'Arrow keys to Move', 32, WIDTH / 2, HEIGHT / 2)
+    draw_text(screen, 'SPACE to fire', 32, WIDTH / 2, HEIGHT / 1.5)
+    draw_text(screen, 'Press a key to begin', 48, WIDTH / 2, HEIGHT * 3 / 4)
+
+gamestate = 'begin'
 
 while running:
-    # clocks control how fast the loop will execute
     clock.tick(FPS)
-
-    # event trigger
-    # TODO 新增起始畫面 按下空白鍵才開始遊戲
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
-    keystate = pygame.key.get_pressed()
-    if keystate[pygame.K_SPACE]:
-        now = pygame.time.get_ticks()
-        if now - last_shot > SHOT_DELAY:
-            last_shot = now
-            shoot()
 
-    # update the state of sprites
-    check_meteor_hit_player()
-    #
-    check_bullets_hit_meteor()
+    if gamestate == 'begin':
+        show_begin_screen()
+        keystate = pygame.key.get_pressed()
+        if keystate[pygame.K_SPACE]:
+            gamestate = 'start'
+    
+    elif gamestate == 'start':
+        # clocks control how fast the loop will execute
+         
+        # event trigger
+        # TODO 新增起始畫面 按下空白鍵才開始遊戲
+        keystate = pygame.key.get_pressed()
+        if keystate[pygame.K_SPACE]:
+            now = pygame.time.get_ticks()
+            if now - last_shot > SHOT_DELAY:
+                last_shot = now
+                shoot()
+        # update the state of sprites
+        check_meteor_hit_player()
+        check_support_hit_player()
+        #
+        check_bullets_hit_meteor()
 
-    all_sprites.update()
+        all_sprites.update()
 
-    # draw on screen
+        # draw on screen
 
-    # screen.fill(BLACK)
-    screen.blit(bg,bg_rect)
-    draw_shield()
-    draw_score()
-    all_sprites.draw(screen)
-    # flip to display
-    pygame.display.flip()
+        # screen.fill(BLACK)
+        screen.blit(bg,bg_rect)
+        draw_shield()
+        draw_score()
+        all_sprites.draw(screen)
+        # flip to display
+        pygame.display.flip()
 
 pygame.quit()
